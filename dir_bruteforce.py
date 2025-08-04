@@ -2,121 +2,109 @@ import requests
 import random
 import time
 import argparse
+import os
+import sys
+from urllib.parse import urljoin
 
-# Predefined list of User-Agent strings for rotation (a sample from various browsers)
+# Predefined User-Agents for rotation
 USER_AGENTS = [
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:77.0) Gecko/20100101 Firefox/77.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.97 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:77.0) Gecko/20100101 Firefox/77.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_4) AppleWebKit/605.1.15 Safari/605.1.15",
+    "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 Chrome/115.0.0.0 Mobile Safari/537.36",
 ]
 
-def main():
-    parser = argparse.ArgumentParser(description="Python Directory Brute Force Tool with User-Agent rotation and rate limiting")
-    parser.add_argument("-u", "--url", required=True, help="Target base URL (e.g., http://site.com or http://site.com/dir/)")
-    parser.add_argument("-w", "--wordlist", required=True, help="Path to wordlist file (one directory/file name per line)")
-    parser.add_argument("-d", "--delay", type=float, default=0.0, help="Delay between requests in seconds (rate limiting)")
-    parser.add_argument("-o", "--output", help="Output file to write found directories to")
-    args = parser.parse_args()
+def is_valid_url(url):
+    return url.startswith("http://") or url.startswith("https://")
 
-    base_url = args.url
-    # Ensure the base URL does not end with a trailing slash to avoid double slashes
-    # (We'll handle slash when constructing full URL)
-    if base_url.endswith("/"):
-        base_url = base_url.rstrip("/")
+def load_wordlist(path):
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"Wordlist file not found: {path}")
+    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+        return [line.strip() for line in f if line.strip()]
 
-    delay = args.delay if args.delay >= 0 else 0.0  # negative delay not allowed, set to 0 if so
-
-    # Open wordlist file and read entries
+def open_output_file(path):
     try:
-        with open(args.wordlist, "r") as f:
-            words = [line.strip() for line in f if line.strip()]
-    except FileNotFoundError:
-        print(f"[ERROR] Wordlist file not found: {args.wordlist}")
-        return
+        return open(path, 'w', encoding='utf-8')
+    except Exception as e:
+        print(f"[ERROR] Could not open output file '{path}': {e}")
+        return None
 
-    # Open output file if specified
-    output_file = None
-    if args.output:
+def brute_force(url, wordlist, delay, output_file):
+    for word in wordlist:
+        full_url = urljoin(url, word)
+        headers = {"User-Agent": random.choice(USER_AGENTS)}
+
         try:
-            output_file = open(args.output, "w")
-        except Exception as e:
-            print(f"[ERROR] Could not open output file for writing: {e}")
-            # Continue without file logging if file open fails
-            output_file = None
-
-    try:
-        for word in words:
-            # Construct the full URL to test
-            # e.g., base_url + "/" + word
-            target_url = f"{base_url}/{word}"
-            # Pick a random User-Agent for this request
-            headers = {"User-Agent": random.choice(USER_AGENTS)}
-            try:
-                # Send GET request (do not follow redirects to capture 301/302 responses)
-                response = requests.get(target_url, headers=headers, allow_redirects=False)
-            except requests.RequestException as req_err:
-                # Handle network errors (timeout, connection error, etc.)
-                print(f"[ERROR] Request to {target_url} failed: {req_err}")
-                # Continue to next word
-                continue
-
+            response = requests.get(full_url, headers=headers, allow_redirects=False, timeout=10)
             status = response.status_code
 
-            # Check response status and act accordingly
             if status == 200:
-                print(f"[200] FOUND: {target_url}")
-                if output_file:
-                    output_file.write(f"200\t{target_url}\n")
-                    output_file.flush()
-            elif status in (301, 302):
-                # Redirect indicates something is there (often adding a slash or redirect to login)
-                location = response.headers.get("Location", "")
-                print(f"[{status}] FOUND (redirect to {location}): {target_url}")
-                if output_file:
-                    output_file.write(f"{status}\t{target_url} -> {location}\n")
-                    output_file.flush()
+                msg = f"[200] FOUND: {full_url}"
+            elif status in [301, 302]:
+                loc = response.headers.get('Location', '')
+                msg = f"[{status}] REDIRECT: {full_url} -> {loc}"
             elif status == 403:
-                print(f"[403] FOUND (forbidden): {target_url}")
-                if output_file:
-                    output_file.write(f"403\t{target_url} (Forbidden)\n")
-                    output_file.flush()
+                msg = f"[403] FORBIDDEN (exists): {full_url}"
             elif status == 401:
-                print(f"[401] FOUND (auth required): {target_url}")
-                if output_file:
-                    output_file.write(f"401\t{target_url} (Unauthorized)\n")
-                    output_file.flush()
+                msg = f"[401] AUTH REQUIRED: {full_url}"
             elif status == 429:
-                # Too Many Requests - hit rate limit or got blocked temporarily
-                retry_after = response.headers.get("Retry-After")
-                wait_time = 0
-                if retry_after:
-                    try:
-                        wait_time = int(retry_after)
-                    except ValueError:
-                        # If Retry-After is a timestamp or not an integer, default to a safe wait
-                        pass
-                if not wait_time:
-                    # If no Retry-After header or not usable, wait longer than the normal delay
-                    wait_time = 5 if delay == 0 else max(5, delay * 2)
-                print(f"[429] Rate limit hit. Sleeping for {wait_time} seconds...")
+                retry_after = response.headers.get('Retry-After')
+                wait_time = int(retry_after) if retry_after and retry_after.isdigit() else max(5, delay * 2)
+                print(f"[429] TOO MANY REQUESTS. Sleeping {wait_time}s...")
                 time.sleep(wait_time)
-                # After sleeping, skip logging this as found and continue with next word
-                # (We could also retry the same word after sleeping, but to keep things simple, we'll move on)
+                continue
+            elif status != 404:
+                msg = f"[{status}] RESPONSE: {full_url}"
             else:
-                # Other status codes (404, 500, etc.)
-                if status != 404:
-                    # If it's not 404, it might be something interesting (500 error, 301 followed by a 404, etc.)
-                    print(f"[{status}] Note: Received status {status} for {target_url}")
-                    if output_file:
-                        output_file.write(f"{status}\t{target_url}\n")
-                        output_file.flush()
-                # For 404 or any uninteresting code, do nothing (not found)
+                # Skip 404 silently
+                continue
 
-            # Respect the delay between requests
-            if delay > 0:
-                time.sleep(delay)
+            print(msg)
+            if output_file:
+                try:
+                    output_file.write(msg + "\n")
+                    output_file.flush()
+                except Exception as e:
+                    print(f"[ERROR] Failed to write to output file: {e}")
+
+        except requests.exceptions.RequestException as e:
+            print(f"[ERROR] Request failed for {full_url}: {e}")
+
+        time.sleep(delay)
+
+def main():
+    parser = argparse.ArgumentParser(description="Directory Brute Forcer with UA Rotation, Delay, Error Handling")
+    parser.add_argument("-u", "--url", required=True, help="Base URL (e.g., http://example.com/)")
+    parser.add_argument("-w", "--wordlist", required=True, help="Path to wordlist file")
+    parser.add_argument("-d", "--delay", type=float, default=0.0, help="Delay between requests (default: 0)")
+    parser.add_argument("-o", "--output", help="Optional output file to log results")
+    args = parser.parse_args()
+
+    if not is_valid_url(args.url):
+        print("[ERROR] Invalid URL. Please include http:// or https://")
+        sys.exit(1)
+
+    try:
+        wordlist = load_wordlist(args.wordlist)
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        sys.exit(1)
+
+    output_file = open_output_file(args.output) if args.output else None
+
+    print(f"[*] Starting brute force on: {args.url}")
+    print(f"[*] Words to test: {len(wordlist)}")
+    print(f"[*] Delay between requests: {args.delay} sec")
+    print(f"[*] Output file: {args.output if args.output else 'None'}\n")
+
+    try:
+        brute_force(args.url, wordlist, args.delay, output_file)
+    except KeyboardInterrupt:
+        print("\n[!] Interrupted by user. Exiting gracefully...")
     finally:
         if output_file:
             output_file.close()
+
+if __name__ == "__main__":
+    main()
