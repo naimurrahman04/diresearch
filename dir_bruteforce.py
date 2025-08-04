@@ -5,8 +5,10 @@ import argparse
 import os
 import sys
 from urllib.parse import urljoin
+from colorama import Fore, Style, init
 
-# Predefined User-Agents for rotation
+init(autoreset=True)
+
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115.0.0.0 Safari/537.36",
     "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0",
@@ -30,7 +32,25 @@ def open_output_file(path):
         print(f"[ERROR] Could not open output file '{path}': {e}")
         return None
 
+def color_status(status, text):
+    if status == 200:
+        return Fore.GREEN + text + Style.RESET_ALL
+    elif status in [301, 302]:
+        return Fore.CYAN + text + Style.RESET_ALL
+    elif status == 403:
+        return Fore.YELLOW + text + Style.RESET_ALL
+    elif status == 401:
+        return Fore.MAGENTA + text + Style.RESET_ALL
+    elif status == 429:
+        return Fore.RED + text + Style.RESET_ALL
+    elif 500 <= status < 600:
+        return Fore.RED + text + Style.RESET_ALL
+    else:
+        return text
+
 def brute_force(url, wordlist, delay, output_file):
+    results = []
+
     for word in wordlist:
         full_url = urljoin(url, word)
         headers = {"User-Agent": random.choice(USER_AGENTS)}
@@ -51,16 +71,16 @@ def brute_force(url, wordlist, delay, output_file):
             elif status == 429:
                 retry_after = response.headers.get('Retry-After')
                 wait_time = int(retry_after) if retry_after and retry_after.isdigit() else max(5, delay * 2)
-                print(f"[429] TOO MANY REQUESTS. Sleeping {wait_time}s...")
+                print(color_status(429, f"[429] TOO MANY REQUESTS. Sleeping {wait_time}s..."))
                 time.sleep(wait_time)
                 continue
             elif status != 404:
                 msg = f"[{status}] RESPONSE: {full_url}"
             else:
-                # Skip 404 silently
                 continue
 
-            print(msg)
+            print(color_status(status, msg))
+            results.append((status, msg))
             if output_file:
                 try:
                     output_file.write(msg + "\n")
@@ -73,8 +93,13 @@ def brute_force(url, wordlist, delay, output_file):
 
         time.sleep(delay)
 
+    # Final output summary
+    print("\n\n[+] Scan Complete. Sorted Results:\n")
+    for status, msg in sorted(results, key=lambda x: x[0]):
+        print(color_status(status, msg))
+
 def main():
-    parser = argparse.ArgumentParser(description="Directory Brute Forcer with UA Rotation, Delay, Error Handling")
+    parser = argparse.ArgumentParser(description="Dir Brute Forcer with Colors, UA Rotation, Delay & Sorting")
     parser.add_argument("-u", "--url", required=True, help="Base URL (e.g., http://example.com/)")
     parser.add_argument("-w", "--wordlist", required=True, help="Path to wordlist file")
     parser.add_argument("-d", "--delay", type=float, default=0.0, help="Delay between requests (default: 0)")
