@@ -58,16 +58,18 @@ def brute_force(url, wordlist, delay, output_file):
         try:
             response = requests.get(full_url, headers=headers, allow_redirects=False, timeout=10)
             status = response.status_code
+            size = len(response.content)
 
+            banner = f"[{status} | {size}B]"
             if status == 200:
-                msg = f"[200] FOUND: {full_url}"
+                msg = f"{banner} FOUND: {full_url}"
             elif status in [301, 302]:
                 loc = response.headers.get('Location', '')
-                msg = f"[{status}] REDIRECT: {full_url} -> {loc}"
+                msg = f"{banner} REDIRECT: {full_url} -> {loc}"
             elif status == 403:
-                msg = f"[403] FORBIDDEN (exists): {full_url}"
+                msg = f"{banner} FORBIDDEN (exists): {full_url}"
             elif status == 401:
-                msg = f"[401] AUTH REQUIRED: {full_url}"
+                msg = f"{banner} AUTH REQUIRED: {full_url}"
             elif status == 429:
                 retry_after = response.headers.get('Retry-After')
                 wait_time = int(retry_after) if retry_after and retry_after.isdigit() else max(5, delay * 2)
@@ -75,7 +77,7 @@ def brute_force(url, wordlist, delay, output_file):
                 time.sleep(wait_time)
                 continue
             elif status != 404:
-                msg = f"[{status}] RESPONSE: {full_url}"
+                msg = f"{banner} RESPONSE: {full_url}"
             else:
                 continue
 
@@ -99,7 +101,7 @@ def brute_force(url, wordlist, delay, output_file):
         print(color_status(status, msg))
 
 def main():
-    parser = argparse.ArgumentParser(description="Dir Brute Forcer with Colors, UA Rotation, Delay & Sorting")
+    parser = argparse.ArgumentParser(description="Dir Brute Forcer with Color, Delay, Response Size & Sorted Output")
     parser.add_argument("-u", "--url", required=True, help="Base URL (e.g., http://example.com/)")
     parser.add_argument("-w", "--wordlist", required=True, help="Path to wordlist file")
     parser.add_argument("-d", "--delay", type=float, default=0.0, help="Delay between requests (default: 0)")
