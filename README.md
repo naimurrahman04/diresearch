@@ -39,14 +39,48 @@ python dir_bruteforce.py -u <target_url> -w <wordlist_path> [options]
 python dir_bruteforce.py -u http://example.com -w ./wordlists/common.txt -d 1.5 -o results.txt
 
 
----
 
-Let me know if you’d like to turn this into a GitHub project with additional improvements like:
 
-- `requirements.txt`
-- Multi-threading support
-- WAF bypass techniques (headers, encodings)
-- JSON output
-- API fuzzing variant
+Start
+ │
+ ├──► Parse CLI Arguments
+ │       ├─ URL, Wordlist
+ │       ├─ Delay, Proxy, Output
+ │       ├─ --4bypass, --exclude-size
+ │
+ ├──► Validate:
+ │       ├─ URL format
+ │       ├─ Wordlist file
+ │       └─ Parse exclude-size (into set)
+ │
+ ├──► Open Output File (optional)
+ ├──► Setup Proxy (if provided)
+ ├──► Loop through each path in wordlist:
+ │
+ │   ├──► Build Request Headers (User-Agent + Stealth Headers)
+ │   ├──► Send GET Request (with headers and proxy)
+ │   ├──► Get:
+ │   │       ├─ Status Code
+ │   │       └─ Response Size
+ │   ├──► If size in --exclude-size:
+ │   │       └─ Skip to next path
+ │   ├──► Log & Print Status (Colored)
+ │   ├──► If status == 403 AND --4bypass:
+ │   │       ├──► Try Bypass (Suffixes + Headers)
+ │   │       ├──► For Each Bypass:
+ │   │       │       ├── Send Request
+ │   │       │       ├── Get Status + Size
+ │   │       │       ├── If status not 403/404 and size not excluded:
+ │   │       │       │     └── Log & Print
+ │   │       │       └── End
+ │   │       └── End
+ │   └──► Sleep for delay (if set)
+ │
+ └──► After loop:
+         ├── Sort all results by status code
+         ├── Print final colored summary
+         └── Close output file (if open)
+         └── Exit
+
 
 I'll be happy to help.
