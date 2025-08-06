@@ -75,7 +75,7 @@ def build_headers():
         headers.update(hdr)
     return headers
 
-def try_bypass(base_url, word, original_status, output_file, proxies, cert, exclude_sizes):
+def try_bypass(base_url, word, original_status, output_file, proxies, verify, exclude_sizes):
     bypassed = []
     full_url = urljoin(base_url, word)
 
@@ -83,7 +83,7 @@ def try_bypass(base_url, word, original_status, output_file, proxies, cert, excl
         bypass_url = full_url + suffix
         headers = build_headers()
         try:
-            resp = requests.get(bypass_url, headers=headers, allow_redirects=False, timeout=10, proxies=proxies, cert=cert)
+            resp = requests.get(bypass_url, headers=headers, allow_redirects=False, timeout=10, proxies=proxies, verify=verify)
             size = len(resp.content)
             if exclude_sizes and size in exclude_sizes:
                 continue
@@ -100,7 +100,7 @@ def try_bypass(base_url, word, original_status, output_file, proxies, cert, excl
         headers = build_headers()
         headers.update(hdr)
         try:
-            resp = requests.get(full_url, headers=headers, allow_redirects=False, timeout=10, proxies=proxies, cert=cert)
+            resp = requests.get(full_url, headers=headers, allow_redirects=False, timeout=10, proxies=proxies, verify=verify)
             size = len(resp.content)
             if exclude_sizes and size in exclude_sizes:
                 continue
@@ -116,7 +116,7 @@ def try_bypass(base_url, word, original_status, output_file, proxies, cert, excl
 
     return bypassed
 
-def brute_force(url, wordlist, delay, output_file, do_bypass, proxies, exclude_sizes, cert):
+def brute_force(url, wordlist, delay, output_file, do_bypass, proxies, verify, exclude_sizes):
     results = []
 
     for word in wordlist:
@@ -124,7 +124,7 @@ def brute_force(url, wordlist, delay, output_file, do_bypass, proxies, exclude_s
         headers = build_headers()
 
         try:
-            response = requests.get(full_url, headers=headers, allow_redirects=False, timeout=10, proxies=proxies, cert=cert)
+            response = requests.get(full_url, headers=headers, allow_redirects=False, timeout=10, proxies=proxies, verify=verify)
             status = response.status_code
             size = len(response.content)
 
@@ -158,7 +158,7 @@ def brute_force(url, wordlist, delay, output_file, do_bypass, proxies, exclude_s
                 output_file.write(msg + "\n")
 
             if do_bypass and status == 403:
-                bypass_results = try_bypass(url, word, status, output_file, proxies, cert, exclude_sizes)
+                bypass_results = try_bypass(url, word, status, output_file, proxies, verify, exclude_sizes)
                 results.extend(bypass_results)
 
         except requests.exceptions.RequestException as e:
@@ -171,31 +171,20 @@ def brute_force(url, wordlist, delay, output_file, do_bypass, proxies, exclude_s
         print(color_status(status, msg))
 
 def main():
-    parser = argparse.ArgumentParser(description="Dir Brute Forcer with Proxy, Cert, 403 Bypass, UA Rotation, Exclude Size")
-    parser.add_argument("-u", "--url", required=True, help="Base URL (e.g., http://example.com/)")
+    parser = argparse.ArgumentParser(description="Dir Brute Forcer with proxy, CA cert, UA rotation, bypass, and size filtering")
+    parser.add_argument("-u", "--url", required=True, help="Base URL (e.g., https://target.com/)")
     parser.add_argument("-w", "--wordlist", required=True, help="Path to wordlist file")
     parser.add_argument("-d", "--delay", type=float, default=0.0, help="Delay between requests (default: 0)")
     parser.add_argument("-o", "--output", help="Optional output file to log results")
     parser.add_argument("--4bypass", action="store_true", help="Enable 403 bypass techniques")
     parser.add_argument("--proxy", help="HTTP/HTTPS proxy (e.g., http://127.0.0.1:8080)")
-    parser.add_argument("--cert", help="Client certificate path (PEM/CRT format) for mTLS or Burp/ZAP trust")
-    parser.add_argument("--exclude-size", help="Comma-separated response sizes to exclude (e.g. 0,1234,5678)")
+    parser.add_argument("--verify", help="Path to Burp/ZAP CA cert (e.g., cacert.pem)")
+    parser.add_argument("--exclude-size", help="Comma-separated response sizes to exclude (e.g. 0,1234)")
     args = parser.parse_args()
 
     if not is_valid_url(args.url):
         print("[ERROR] Invalid URL. Please include http:// or https://")
         sys.exit(1)
-
-    exclude_sizes = set()
-    if args.exclude_size:
-        try:
-            exclude_sizes = set(int(x.strip()) for x in args.exclude_size.split(",") if x.strip().isdigit())
-        except ValueError:
-            print("[ERROR] Invalid format in --exclude-size.")
-            sys.exit(1)
-
-    cert = args.cert if args.cert else None
-    proxies = {"http": args.proxy, "https": args.proxy} if args.proxy else None
 
     try:
         wordlist = load_wordlist(args.wordlist)
@@ -204,18 +193,28 @@ def main():
         sys.exit(1)
 
     output_file = open_output_file(args.output) if args.output else None
+    proxies = {"http": args.proxy, "https": args.proxy} if args.proxy else None
+    verify = args.verify if args.verify else True
+
+    exclude_sizes = set()
+    if args.exclude_size:
+        try:
+            exclude_sizes = set(int(size.strip()) for size in args.exclude_size.split(',') if size.strip().isdigit())
+        except ValueError:
+            print("[ERROR] Invalid format in --exclude-size. Use comma-separated integers.")
+            sys.exit(1)
 
     print(f"[*] Starting brute force on: {args.url}")
     print(f"[*] Words to test: {len(wordlist)}")
     print(f"[*] Delay between requests: {args.delay} sec")
     print(f"[*] 403 Bypass Mode: {'ON' if args.__dict__.get('4bypass') else 'OFF'}")
     print(f"[*] Proxy: {args.proxy if args.proxy else 'None'}")
-    print(f"[*] Cert: {args.cert if args.cert else 'None'}")
-    print(f"[*] Exclude Sizes: {', '.join(str(x) for x in exclude_sizes) if exclude_sizes else 'None'}")
+    print(f"[*] Cert: {args.verify if args.verify else 'Default'}")
+    print(f"[*] Exclude Sizes: {', '.join(map(str, exclude_sizes)) if exclude_sizes else 'None'}")
     print(f"[*] Output file: {args.output if args.output else 'None'}\n")
 
     try:
-        brute_force(args.url, wordlist, args.delay, output_file, args.__dict__.get("4bypass"), proxies, exclude_sizes, cert)
+        brute_force(args.url, wordlist, args.delay, output_file, args.__dict__.get("4bypass"), proxies, verify, exclude_sizes)
     except KeyboardInterrupt:
         print("\n[!] Interrupted by user. Exiting gracefully...")
     finally:
